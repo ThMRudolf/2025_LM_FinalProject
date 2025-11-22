@@ -1,0 +1,265 @@
+
+---
+title: "EMCO / SINUMERIK Spindle Data Pipeline"
+author: "Generated with ChatGPT"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    theme: cosmo
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+# Overview
+
+This document describes and implements a reusable Python pipeline to
+
+- read **SINUMERIK `.TEA` parameter files** (axis and drive),
+- extract **drive / motor physics parameters** (nominal current, power, inertia, speed limits, etc.), and
+- convert **raw NCK spindle signals** from a CSV log into **physical units** (rpm, rad/s, A, W, Nm).
+
+The main use case is the analysis of spindle dynamics and cutting torque on machines like the **EMCO E900** (SINUMERIK-based), but the code is written to be reusable for other machines as well, as long as `.TEA` files are available.
+
+The core abstraction is a `MachineToolParser` class that:
+
+1. parses TEA files,
+2. extracts the relevant drive parameters for a specific drive (e.g. `DR4`), and
+3. provides a single method `process_csv()` to convert a CSV log to a physics-calibrated DataFrame.
+
+# Environment Setup
+
+```{python}
+import numpy as np
+import pandas as pd
+import re
+from pathlib import Path
+```
+
+# TEA File Reader
+
+SINUMERIK `.TEA` files contain axis (`$MA_…`) and drive (`$MD_…`) parameters in a textual format. A typical line looks like
+
+```text
+N1103 $MD_MOTOR_NOMINAL_CURRENT[DR4]=59.0
+```
+
+We parse these lines into a dictionary that maps parameter keys to numeric (or string) values.
+
+```{python}
+def read_tea_file(path):
+    """
+    Reads a SINUMERIK .TEA parameter file and returns a dict:
+
+    {
+        "$MD_MOTOR_NOMINAL_CURRENT[DR4]": 59.0,
+        "$MD_MOTOR_INERTIA[DR4]": 0.036,
+        ...
+    }
+    """
+
+    params = {}
+
+    # Regex for lines like:
+    # N1103 $MD_MOTOR_NOMINAL_CURRENT[DR4]=59.0
+    pattern = re.compile(
+        r'^\s*N\d+\s+(\$[A-Z0-9_]+(?:\[[^\]]+\])?)\s*=\s*(.+?)\s*$'
+    )
+
+    with open(path, "r", errors="ignore") as f:
+        for line in f:
+            m = pattern.match(line)
+            if m:
+                key = m.group(1).strip()
+                raw_val = m.group(2).strip()
+
+                # Try to convert to float or int when possible
+                if raw_val.startswith("'") and raw_val.endswith("'"):
+                    # Hex or string constants like 'H330'
+                    val = raw_val.strip("'")
+                else:
+                    try:
+                        if "." in raw_val:
+                            val = float(raw_val)
+                        else:
+                            val = int(raw_val)
+                    except Exception:
+                        val = raw_val  # leave as raw string
+
+                params[key] = val
+
+    return params
+```
+
+# Drive Parameter Extraction
+
+From all parameters in the `.TEA` file, only a subset is needed for the conversion of the NCK spindle signals into physical units:
+
+- motor nominal current (A),
+- motor nominal power (kW),
+- rated and max speed (rpm),
+- motor inertia (kg·m²),
+- encoder resolution,
+- limits for current, torque and power.
+
+The function below extracts these from a parameter dictionary for a given drive, e.g. `DR4`. It also looks for `_M2` variants (second motor dataset) as fallbacks, which is common for two-range spindles.
+
+```{python}
+def extract_drive_parameters(params, drive="DR4"):
+    """
+    Extract physics-relevant MD parameters for a specific drive.
+    Works with motor M1 and falls back to M2 if needed.
+    """
+    drive = drive.upper()
+
+    def g(name):
+        return (
+            params.get(f"{name}[{drive}]")
+            or params.get(f"{name}_M2[{drive}]")
+            or None
+        )
+
+    extracted = {
+        "motor_nominal_current_A":    g("$MD_MOTOR_NOMINAL_CURRENT"),
+        "motor_nominal_power_kW":     g("$MD_MOTOR_NOMINAL_POWER"),
+        "motor_rated_speed_rpm":      g("$MD_MOTOR_RATED_SPEED"),
+        "motor_max_speed_rpm":        g("$MD_MOTOR_MAX_ALLOWED_SPEED"),
+        "motor_inertia_kgm2":         g("$MD_MOTOR_INERTIA"),
+        "inverter_rated_current_A":   g("$MD_INVERTER_RATED_CURRENT"),
+        "current_limit_pct":          g("$MD_CURRENT_LIMIT"),
+        "torque_limit_pct":           g("$MD_TORQUE_LIMIT_1"),
+        "power_limit_pct":            g("$MD_POWER_LIMIT_1"),
+        "enc_res_motor":              g("$MD_ENC_RESOL_MOTOR"),
+    }
+
+    return extracted
+```
+
+# The `MachineToolParser` Class
+
+The class ties everything together:
+
+- reads axis and drive `.TEA` files,
+- extracts the drive parameters,
+- converts raw NCK signals from a CSV into physical units.
+
+The CSV is expected to contain at least the following columns (names can of course be changed in your own preprocessing):
+
+- `ActVelMot32` – `+/Nck/!SD/nckServoDataActVelMot32`
+- `ActCurr32`  – `+/Nck/!SD/nckServoDataActCurr32`
+- `ActPower32` – `+/Nck/!SD/nckServoDataActPower32`
+
+```{python}
+class MachineToolParser:
+    """
+    Reads Siemens .TEA files (axis + drive), extracts MD parameters,
+    and converts NCK raw servo signals to physical units.
+
+    Typical usage (EMCO E900 spindle on DR4):
+
+        parser = MachineToolParser("MDACHSX4.TEA", "MDANTRX4.TEA", drive="DR4")
+        df_phys = parser.process_csv("spindle_log.csv")
+    """
+
+    def __init__(self, tea_axis_path, tea_drive_path, drive="DR4"):
+        self.drive = drive.upper()
+        self.axis_params = read_tea_file(tea_axis_path)
+        self.drive_params = read_tea_file(tea_drive_path)
+
+        # Extract motor/drive physics from drive TEA
+        self.md = extract_drive_parameters(self.drive_params, self.drive)
+
+    # -----------------------------------------------------
+    # Raw-to-physics conversion
+    # -----------------------------------------------------
+    def convert_signals(self, df):
+        """
+        Convert raw NCK signals to physical units:
+
+        - rpm, omega [rad/s]
+        - I [A] from current percentage
+        - P [kW] and [W] from power percentage
+        - T [Nm] from power and speed
+
+        Required df columns:
+            ActVelMot32  (nckServoDataActVelMot32)
+            ActCurr32    (nckServoDataActCurr32)
+            ActPower32   (nckServoDataActPower32)
+        """
+
+        # 1) SPEED: Sinumerik convention is 0.1 rpm per unit
+        df = df.copy()
+        df["rpm"] = 0.1 * df["ActVelMot32"]
+        df["omega_rad_s"] = df["rpm"] * (2*np.pi/60.0)
+
+        # 2) CURRENT: assume 0.1 % of nominal per unit
+        I_nom = self.md["motor_nominal_current_A"]
+        if I_nom is None:
+            raise ValueError("Nominal current not found in TEA (MD_MOTOR_NOMINAL_CURRENT).")
+
+        df["I_pct"] = df["ActCurr32"] / 10.0          # [% of nominal]
+        df["I_A"]   = df["I_pct"] / 100.0 * I_nom     # A
+
+        # 3) POWER: assume 0.1 % of nominal per unit
+        P_nom_kW = self.md["motor_nominal_power_kW"]
+        if P_nom_kW is None:
+            raise ValueError("Nominal power not found in TEA (MD_MOTOR_NOMINAL_POWER).")
+
+        df["P_pct"] = df["ActPower32"] / 10.0         # [% of nominal]
+        df["P_kW"]  = df["P_pct"] / 100.0 * P_nom_kW
+        df["P_W"]   = 1000.0 * df["P_kW"]
+
+        # 4) TORQUE: T = 9550 P[kW] / n[rpm]
+        df["T_Nm"] = 9550.0 * df["P_kW"] / df["rpm"].clip(lower=1e-3)
+
+        return df
+
+    # -----------------------------------------------------
+    # Full pipeline: CSV → physics-calibrated DataFrame
+    # -----------------------------------------------------
+    def process_csv(self, csv_path):
+        """
+        Reads a logged NCK CSV file and returns a DataFrame
+        with additional physics-based columns.
+        """
+        df = pd.read_csv(csv_path)
+        return self.convert_signals(df)
+```
+
+# Example Usage
+
+Below is a minimal example of how to use the class. Adjust the filenames to match your setup (TEA and CSV locations).
+
+```{python}
+# Example paths (update to your actual file paths)
+axis_tea_path  = "MDACHSX4.TEA"
+drive_tea_path = "MDANTRX4.TEA"
+csv_path       = "spindle_log.csv"  # your NCK log
+
+# Instantiate the parser for drive DR4 (spindle)
+parser = MachineToolParser(axis_tea_path, drive_tea_path, drive="DR4")
+
+# Process a CSV file (uncomment when files are available)
+# df_phys = parser.process_csv(csv_path)
+# df_phys.head()
+```
+
+At this point `df_phys` will contain, in addition to your original signals,
+
+- `rpm` – spindle/motor speed in rpm,
+- `omega_rad_s` – angular velocity in rad/s,
+- `I_pct` – current as % of nominal current,
+- `I_A` – estimated phase current in A,
+- `P_pct` – power as % of nominal power,
+- `P_kW`, `P_W` – mechanical power in kW and W,
+- `T_Nm` – estimated spindle torque in Nm.
+
+These signals can then be used for:
+
+- dynamic identification (estimating damping B, validating inertia J),
+- Kienzle-based cutting torque models,
+- tool-wear monitoring and anomaly detection,
+- or closed-loop digital twin simulations of the spindle drive.
