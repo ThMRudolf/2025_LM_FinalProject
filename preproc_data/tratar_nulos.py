@@ -50,7 +50,7 @@ def revisar_nulos_interpolar(dataframes):
         columnas_con_nulos = nulos_por_col[nulos_por_col > 0]
         # Si hay columnas con nulos, intentar interpolar
         if not columnas_con_nulos.empty:
-            for col, nulos in columnas_con_nulos.items():
+            for col in columnas_con_nulos.index:
                 # Intentar interpolar si es numérica
                 if pd.api.types.is_numeric_dtype(df[col]):
                     # Evitar la asignación encadenada que causa FutureWarning

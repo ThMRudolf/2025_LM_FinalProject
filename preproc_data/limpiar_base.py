@@ -1,16 +1,16 @@
 import pandas as pd
+from pathlib import Path
 
 # ---------------------------------------------------------
 # Renombrar columnas
 # ---------------------------------------------------------
 def renombrar_cols(dataframes):
-    # 1.- Añadir columna 'source_file' con 'carpeta1-carpeta2-carpeta3-...'
+    # 1.- Añadir columna 'source_file' con 'nombre_archivo.csv' a cada DataFrame
     for fname, df in dataframes.items():
-        source_file = "-".join(fname.parts)
-        #eliminamos nombre_archivo.csv para dejar solo las carpetas
-        source_file = "-".join(fname.parts[:-1])
-        # Añadimos la columna source file al DataFrame
-        df['source_file'] = source_file
+        # Añadimos la columna source file (nombre del archivo) al DataFrame
+        df['source_file'] = fname.name
+        #Añadimos la columna path (carpeta) al nombre del DataFrame
+        df['path'] = str(fname.parent)
     #2.- Renombrar columnas para estandarizarlas
     rename_cols = {
         '+/Nck/!SD/nckServoDataActCurr32 [u1; 1]': 'torque_axis_x', 
@@ -43,3 +43,55 @@ def eliminar_columnas(dataframes):
         dataframes_cleaned[fname] = df_cleaned
     print("✔ Se han eliminado las columnas no necesarias de todos los DataFrames.")
     return dataframes_cleaned
+
+#---------------------------------------------------------
+# Insertar Parametros de Preprocesamiento
+#---------------------------------------------------------
+def insertar_parametros(dataframes, experiments_df):
+    """
+    Añade columnas Ae, Ap, f y N a cada DataFrame de los traces,
+    basándose en el archivo SinuTraceFile indicado en el Excel.
+    
+    Modifica 'dataframes' en sitio.
+    """
+    # Normalizar nombre de archivo → facilitar matching
+    experiments_df["SinuTraceFile (*.csv)"] = experiments_df["SinuTraceFile (*.csv)"].str.strip()
+
+    # Crear diccionario: filename.csv -> parámetros
+    map_params = {
+        row["SinuTraceFile (*.csv)"]: {
+            "Ae_mm": row["Ae (mm)"],
+            "Ap_mm": row["Ap (mm)"],
+            "f_mm_min": row["f (mm/min)"],
+            "N_rpm": row["N (rpm)"],
+        }
+        for _, row in experiments_df.iterrows()
+    }
+
+    print(f"✔ {len(map_params)} archivos con parámetros definidos en Excel\n")
+
+    # Recorrer todos los dataframes y asignar parámetros si aplica
+    for path_key, df in dataframes.items():
+        filename = path_key.name  # ej: "Trace_0623_093401.csv"
+        
+        if filename in map_params:
+            params = map_params[filename]
+
+            # Añadir columnas repetidas
+            for col_name, value in params.items():
+                df[col_name] = value
+
+        else:
+            # No pasa nada, simplemente no tiene parámetros
+            pass
+
+    print("✔ Parámetros agregados correctamente a todos los traces correspondientes.\n")
+
+    return dataframes
+
+
+
+
+
+
+
