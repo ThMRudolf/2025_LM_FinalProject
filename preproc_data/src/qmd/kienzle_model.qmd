@@ -1,0 +1,380 @@
+---
+title: "Kienzle Milling Model for Milling: Chip Thickness and Animation"
+format:
+  html:
+    code-fold: true
+jupyter: python3
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+# Kienzle Milling Model for Milling
+
+This document implements the Kienzle cutting force and torque model for
+**milling**, in time domain.
+
+For a milling process with:
+
+-   depth of cut (a_p)\
+-   feed per tooth (f_z)\
+-   number of teeth (z)\
+-   tool angle (\kappa)\
+-   spindle angular velocity (\omega)\
+-   specific cutting force (k\_{c11})\
+-   Kienzle exponent (m_c)\
+-   tool radius (r\_\text{tool})
+
+we assume for tooth (j) at time (t):
+
+\[ \phi\_j(t) = \omega t + (j-1)\frac{2\pi}{z} \]
+
+The **instantaneous uncut chip thickness** is modeled as:
+
+\[ h_j(t) = f_z , \sin(\phi\_j(t)) \]
+
+for the engaged angular range between entry and exit angles
+(\[\phi\text{ent}, \phi\text{exit}\]).
+
+Your Stan-like Kienzle torque model can be written as:
+
+\[ T_c(t) = a_p, f_z\^{1-m_c}, \sin(\kappa)\^{1-m_c} , k\_{c11} ,
+r\_{\text{tool}} \sum\_{j \in \text{engaged}} \left( \sin(\phi\_j(t))
+\right)\^{1-m_c} \]
+
+Here we make the **chip thickness explicit** and show that the same
+structure arises from a chip-thickness formulation.
+
+------------------------------------------------------------------------
+
+## Imports
+
+' ´´´{python} import numpy as np import matplotlib.pyplot as plt from
+matplotlib.animation import FuncAnimation, PillowWriter ´´´
+
+\## Chip thickness and Kienzle model implementation
+
+We first define a helper for chip thickness and then the main Kienzle
+milling function.
+
+def chip_thickness(angles, fz, mode="up"):\
+"""\
+Compute instantaneous uncut chip thickness for each tooth angle.
+
+```{python}
+angles : ndarray, shape (n, z)     Tooth angles (in radians) at each time step. fz : float     Feed per tooth [mm]. mode : str     Placeholder for more complex models ("up", "down" milling).     For now: h = fz * sin(angle).  Returns ------- h : ndarray, shape (n, z)     Instantaneous chip thickness [mm] for each time and tooth. """ # Basic milling approximation: chip thickness ~ fz * sin(phi) h = fz * np.sin(angles)  # If needed, you can enforce h >= 0 here, but we will use # an engagement mask in the main function instead. return h 
+```
+
+Now the main Kienzle milling model with time dependence and chip
+thickness.
+
+```{python}
+def kienzle_milling_force_torque_time_with_chip(
+t,          # time vector [s]
+ap,         # depth of cut [mm]
+fz,         # feed per tooth [mm]
+z,          # number of cutting edges
+kappa,      # tool angle [rad]
+omega,      # spindle angular velocity [rad/s]
+kc11,       # specific cutting force (consistent units)
+mc,         # Kienzle exponent [-]
+rtool,      # tool radius [m]
+phi_ent,    # entry angle [rad]
+phi_exit    # exit angle [rad]
+):
+"""
+Kienzle milling model (time-domain) with explicit chip thickness.
+
+Returns
+-------
+phi : ndarray, shape (n,)
+    Base spindle angle at each time step (omega * t).
+Fc : ndarray, shape (n,)
+    Cutting force time series.
+Tc : ndarray, shape (n,)
+    Cutting torque time series.
+sin_sums : ndarray, shape (n,)
+    Sum over engaged teeth of effective sin(phi)^(1 - mc) term.
+chip : ndarray, shape (n, z)
+    Chip thickness per tooth and time step.
+angles : ndarray, shape (n, z)
+    Tooth angles.
+engaged : ndarray, shape (n, z)
+    Boolean mask for engagement of each tooth at each time.
+"""
+
+t = np.asarray(t)
+n = t.size
+
+# Base spindle angle for each time
+phi = omega * t  # shape (n,)
+
+# Tooth angular offsets (equally spaced around 2*pi)
+tooth_offsets = np.arange(z) * 2.0 * np.pi / z  # shape (z,)
+
+# Full tooth angles: angles[i, j] = phi[i] + tooth_offsets[j]
+angles = phi[:, None] + tooth_offsets[None, :]  # (n, z)
+
+# Normalize angles to [0, 2*pi)
+angles = (angles + 2.0 * np.pi) % (2.0 * np.pi)
+
+# Engagement mask: tooth contributes only between entry and exit angle
+engaged = (angles >= phi_ent) & (angles <= phi_exit)  # (n, z)
+
+# --- Chip thickness model ---
+chip = chip_thickness(angles, fz, mode="up")  # (n, z)
+
+# Zero-out non-engaged teeth
+chip *= engaged
+
+# Normalize chip thickness by reference fz to recover sin^(1-mc)-like term
+# Avoid division by zero if fz == 0
+if fz == 0:
+    raise ValueError("fz must be > 0 for Kienzle model")
+
+h_norm = chip / fz  # this is effectively sin(angle) for our simple model
+
+# Kienzle exponent part: (h / fz)^(1 - mc) = sin(angle)^(1 - mc)
+sin_like = h_norm ** (1.0 - mc)
+
+# Sum over teeth
+sin_sums = np.sum(sin_like, axis=1)  # (n,)
+
+# Base Kienzle factor (same structure as in your Stan model)
+base = ap * (fz ** (1.0 - mc)) * (np.sin(kappa) ** (1.0 - mc)) * kc11
+
+# Cutting force and torque
+Fc = base * sin_sums           # [N] if units are consistent
+Tc = Fc * rtool                # [N·m]
+
+return phi, Fc, Tc, sin_sums, chip, angles, engaged
+
+```
+
+## Example simulation
+
+We now simulate a 4-flute end mill, 6000 rpm, cutting for 0.1 s.
+
+```{python}
+# Example parameters
+
+ap = 2.0          # mm
+fz = 0.05         # mm/tooth
+z = 4
+kappa = np.deg2rad(90.0)          # [rad]
+n_rpm = 6000                      # [rev/min]
+omega = 2.0 * np.pi * n_rpm / 60.0  # [rad/s]
+kc11 = 1800.0                     # example value (check units!)
+mc = 0.25
+rtool = 0.01                      # 10 mm radius = 0.01 m
+phi_ent = 0.0                     # entry angle [rad]
+phi_exit = np.deg2rad(90.0)       # exit angle [rad], quarter immersion
+
+# Time vector (0.1 s, 2000 samples)
+
+t = np.linspace(0.0, 0.1, 2000)
+
+phi, Fc, Tc, sin_sums, chip, angles, engaged = kienzle_milling_force_torque_time_with_chip(
+t, ap, fz, z, kappa, omega, kc11, mc, rtool, phi_ent, phi_exit
+)
+
+# Plot torque time series
+
+plt.figure(figsize=(10, 4))
+plt.plot(t, Tc)
+plt.title("Torque Time Series (Kienzle Milling Model)")
+plt.xlabel("Time [s]")
+plt.ylabel("Torque [N·m]")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+```
+
+You can also inspect the **chip thickness** over time for one tooth:
+
+```{python}
+tooth_index = 0  # first tooth
+plt.figure(figsize=(10, 4))
+plt.plot(t, chip[:, tooth_index])
+plt.title(f"Chip Thickness for Tooth {tooth_index}")
+plt.xlabel("Time [s]")
+plt.ylabel("Chip Thickness [mm]")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+```
+
+## Animation of tooth engagement and chip thickness
+
+We now create an animation that shows:
+
+-   
+
+-   
+
+    The tool as a circle.
+
+-   
+
+-   
+
+    Each tooth as a radial line.
+
+-   
+
+-   
+
+    Engaged teeth highlighted.
+
+-   
+
+-   
+
+    Chip thickness visualized as additional radial extension.
+
+-   
+
+We will:
+
+1.  
+
+2.  
+
+    Use a subset of frames (to keep the GIF size reasonable).
+
+3.  
+
+4.  
+
+    Save the animation as `kienzle_milling_animation.gif`.
+
+5.  
+
+6.  
+
+    Display it in the document.
+
+7.  
+
+```{python}
+def create_kienzle_animation(
+t, angles, engaged, chip, rtool,
+filename="kienzle_milling_animation.gif",
+step=5
+):
+"""
+Create an animation of tooth engagement and chip thickness.
+
+Parameters
+----------
+t : ndarray, shape (n,)
+    Time vector.
+angles : ndarray, shape (n, z)
+    Tooth angles at each time.
+engaged : ndarray, shape (n, z)
+    Boolean engagement mask.
+chip : ndarray, shape (n, z)
+    Chip thickness [mm] at each time and tooth.
+rtool : float
+    Tool radius [m].
+filename : str
+    Output GIF file.
+step : int
+    Use every 'step'-th frame to reduce animation length.
+"""
+# Subsample frames for animation
+idx = np.arange(0, len(t), step)
+t_sub = t[idx]
+angles_sub = angles[idx]
+engaged_sub = engaged[idx]
+chip_sub = chip[idx]
+
+# Normalize chip thickness for visualization as radial extension
+max_chip = np.max(chip_sub)
+if max_chip <= 0:
+    max_chip = 1.0  # avoid division by zero
+
+# Scale factor to convert chip thickness [mm] to [m] for plotting
+# purely aesthetic: map max chip to, say, 0.3 * rtool
+chip_scale = 0.3 * rtool / max_chip
+
+fig, ax = plt.subplots(figsize=(5, 5))
+ax.set_aspect('equal', 'box')
+
+def init():
+    ax.clear()
+    ax.set_xlim(-1.4 * rtool, 1.4 * rtool)
+    ax.set_ylim(-1.4 * rtool, 1.4 * rtool)
+    ax.set_xlabel("x [m]")
+    ax.set_ylabel("y [m]")
+    ax.set_title("Kienzle Milling – Tooth Engagement")
+    # Draw tool circle
+    circle = plt.Circle((0, 0), rtool, fill=False, linestyle='--')
+    ax.add_patch(circle)
+    return []
+
+def animate(frame_index):
+    ax.clear()
+    ax.set_xlim(-1.4 * rtool, 1.4 * rtool)
+    ax.set_ylim(-1.4 * rtool, 1.4 * rtool)
+    ax.set_xlabel("x [m]")
+    ax.set_ylabel("y [m]")
+
+    current_t = t_sub[frame_index]
+    current_angles = angles_sub[frame_index]
+    current_engaged = engaged_sub[frame_index]
+    current_chip = chip_sub[frame_index]
+
+    ax.set_title(f"Kienzle Milling – t = {current_t:.4f} s")
+
+    # Tool outline
+    circle = plt.Circle((0, 0), rtool, fill=False, linestyle='--')
+    ax.add_patch(circle)
+
+    # Plot each tooth
+    for j, ang in enumerate(current_angles):
+        # Base radius for the tooth (tool radius)
+        x_base = rtool * np.cos(ang)
+        y_base = rtool * np.sin(ang)
+
+        # Radial extension for chip thickness (scaled for visualization)
+        extra = chip_scale * current_chip[j]  # [m]
+        x_tip = (rtool + extra) * np.cos(ang)
+        y_tip = (rtool + extra) * np.sin(ang)
+
+        if current_engaged[j]:
+            color = "tab:red"
+            lw = 3
+        else:
+            color = "tab:gray"
+            lw = 1.5
+
+        # Draw from center to base (tool radius)
+        ax.plot([0, x_base], [0, y_base], color=color, linewidth=lw)
+        # Draw chip thickness extension only if engaged and chip > 0
+        if current_engaged[j] and current_chip[j] > 0:
+            ax.plot([x_base, x_tip], [y_base, y_tip],
+                    color="tab:orange", linewidth=lw)
+
+    return []
+
+anim = FuncAnimation(fig, animate, init_func=init,
+                     frames=len(t_sub), interval=50, blit=False)
+
+# Save as GIF
+anim.save(filename, writer=PillowWriter(fps=20))
+plt.close(fig)
+
+return filename
+
+```
+
+And we display the resulting animation:
+
+```{python}
+from IPython.display import Image
+Image(filename="kienzle_milling_animation.gif")
+
+```
