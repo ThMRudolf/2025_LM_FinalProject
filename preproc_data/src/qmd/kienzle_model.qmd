@@ -212,27 +212,19 @@ We now create an animation that shows:
 
 -   
 
--   
-
-    The tool as a circle.
+-   The tool as a circle.
 
 -   
 
--   
-
-    Each tooth as a radial line.
+-   Each tooth as a radial line.
 
 -   
 
--   
-
-    Engaged teeth highlighted.
+-   Engaged teeth highlighted.
 
 -   
 
--   
-
-    Chip thickness visualized as additional radial extension.
+-   Chip thickness visualized as additional radial extension.
 
 -   
 
@@ -240,21 +232,15 @@ We will:
 
 1.  
 
-2.  
-
-    Use a subset of frames (to keep the GIF size reasonable).
+2.  Use a subset of frames (to keep the GIF size reasonable).
 
 3.  
 
-4.  
-
-    Save the animation as `kienzle_milling_animation.gif`.
+4.  Save the animation as `kienzle_milling_animation.gif`.
 
 5.  
 
-6.  
-
-    Display it in the document.
+6.  Display it in the document.
 
 7.  
 
