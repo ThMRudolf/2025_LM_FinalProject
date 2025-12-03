@@ -64,12 +64,17 @@ def insertar_parametros(dataframes, experiments_df):
             "Ap_mm": row["Ap (mm)"],
             "f_mm_min": row["f (mm/min)"],
             "N_rpm": row["N (rpm)"],
+
         }
         for _, row in experiments_df.iterrows()
     }
-
-    print(f"✔ {len(map_params)} archivos con parámetros definidos en Excel\n")
-
+    #Añadimos parámetro z y diametro (d)
+    z = 2
+    d = 40
+    for key in map_params.keys():
+        map_params[key]["z"] = z
+        map_params[key]["d_mm"] = d
+    
     # Recorrer todos los dataframes y asignar parámetros si aplica
     for path_key, df in dataframes.items():
         filename = path_key.name  # ej: "Trace_0623_093401.csv"
@@ -84,6 +89,23 @@ def insertar_parametros(dataframes, experiments_df):
         else:
             # No pasa nada, simplemente no tiene parámetros
             pass
+    # Parametros para archivos carpeta PLAN
+    ae = 38
+    ap=2
+    f = 632
+    z = 2
+    N = 2108
+    d = 40
+    #Buscamos archivos que contengan 'Plan' en su ruta
+    for path_key, df in dataframes.items():
+        if 'Plan' in str(path_key):
+            # Añadir nuevas columas con los parámetros fijos
+            df['Ae_mm'] = ae
+            df['Ap_mm'] = ap
+            df['f_mm_min'] = f
+            df['N_rpm'] = N
+            df['z'] = z
+            df['d_mm'] = d
 
     print("✔ Parámetros agregados correctamente a todos los traces correspondientes.\n")
 
