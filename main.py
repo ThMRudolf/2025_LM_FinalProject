@@ -12,7 +12,8 @@ from preproc_data.leer_y_guardar import (
 from preproc_data.limpiar_base import (
     renombrar_cols,
     eliminar_columnas,
-    insertar_parametros)
+    insertar_parametros,
+    revisar_archivos_sin_parametros)
 
 from preproc_data.tratar_nulos import (
         imprimir_estadisticas_nulos,
@@ -59,7 +60,8 @@ dataframes = revisar_nulos_interpolar(dataframes)
 #---------------------------------------------------------
 parametros = cargar_experimentos("./data")
 dataframes = insertar_parametros(dataframes, parametros)
-
+columnas_parametros = ['Ae_mm', 'Ap_mm', 'f_mm_min', 'N_rpm', 'z', 'd_mm']
+dataframes = revisar_archivos_sin_parametros(dataframes, columnas_parametros)
 # Mostrar las primeras filas de un DataFrame aleatorio como ejemplo
 example_fname = random.choice(list(dataframes.keys()))
 # print(f"\nPrimeras filas del DataFrame de ejemplo ({example_fname}):")
@@ -68,21 +70,21 @@ example_fname = random.choice(list(dataframes.keys()))
 #---------------------------------------------------------
 # Guardar los DataFrames preprocesados
 #---------------------------------------------------------
-# output_dir = Path("./data/clean")
-# print(f"\nGuardando los DataFrames preprocesados en {output_dir}/...")
-# for fname, df in dataframes.items():
-#     # Creamos el directorio padre si no existe
-#     output_dir.mkdir(parents=True, exist_ok=True)
-#     try:
-#         # Guardar como CSV sin diferenciación de carpetas
-#         output_path = output_dir / fname.name
-#         df.to_csv(output_path, index=False)
-#     except Exception as e:
-#         print(f" ⚠ Error guardando {output_path}: {e}")
-# print("Preprocesamiento completado.")
+output_dir = Path("./data/clean")
+print(f"\nGuardando los DataFrames preprocesados en {output_dir}/...")
+for fname, df in dataframes.items():
+    # Creamos el directorio padre si no existe
+    output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        # Guardar como CSV sin diferenciación de carpetas
+        output_path = output_dir / fname.name
+        df.to_csv(output_path, index=False)
+    except Exception as e:
+        print(f" ⚠ Error guardando {output_path}: {e}")
+print("Preprocesamiento completado.")
 
-# #Leemos los dataframes limpios
-# dataframes_clean = leer_todos_csv(output_dir)
+#Leemos los dataframes limpios
+dataframes_clean = leer_todos_csv(output_dir)
 
 # ---------------------------------------------------------
 # Análisis de los datos preprocesados
@@ -103,22 +105,22 @@ example_fname = random.choice(list(dataframes.keys()))
 
 
 # ---------------------------------------------------------
-# Reducción de los tiempos en los datos (solo quedarse con los primeros 18 seg
+# Reducción de los tiempos en los datos (solo quedarse con los primeros 18 seg)
 # ---------------------------------------------------------
-dataframes_reducidos = {}
-for fname, df in dataframes.items():
-    df_reducido = df[df['time'] <= 18].copy()
-    dataframes_reducidos[fname] = df_reducido
-results_time_reduc = analizar_duracion_cortes(dataframes_reducidos.values())
-print("Duración de los cortes con tiempos reducidos:")
-#Imprimimos en forma de tabla
-for key, value in results_time_reduc.items():
-    print(f" - {key}: {value:.2f} s")
+# dataframes_reducidos = {}
+# for fname, df in dataframes.items():
+#     df_reducido = df[df['time'] <= 18].copy()
+#     dataframes_reducidos[fname] = df_reducido
+# results_time_reduc = analizar_duracion_cortes(dataframes_reducidos.values())
+# print("Duración de los cortes con tiempos reducidos:")
+# #Imprimimos en forma de tabla
+# for key, value in results_time_reduc.items():
+#     print(f" - {key}: {value:.2f} s")
 
-torque_global_red = analizar_torque(dataframes_reducidos.values())
-print("\nEstadísticas globales de torque con tiempos reducidos:")
-for key, value in torque_global_red.items():
-    print(f" - {key}: {value:.2f}")
+# torque_global_red = analizar_torque(dataframes_reducidos.values())
+# print("\nEstadísticas globales de torque con tiempos reducidos:")
+# for key, value in torque_global_red.items():
+#     print(f" - {key}: {value:.2f}")
 
-graficas(dataframes_reducidos.values())
+# graficas(dataframes_reducidos.values())
 

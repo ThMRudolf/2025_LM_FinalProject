@@ -111,6 +111,37 @@ def insertar_parametros(dataframes, experiments_df):
 
     return dataframes
 
+#---------------------------------------------------------
+# Revisar archivos sin parámetros
+#---------------------------------------------------------
+def revisar_archivos_sin_parametros(dataframes, columnas_parametros):
+    """
+    Revisa si cada DataFrame contiene todas las columnas de parámetros.
+    Retorna una lista con los nombres de archivos que NO tienen todas las columnas.
+    """
+    archivos_faltantes = []
+
+    for fname, df in dataframes.items():
+        faltantes = [col for col in columnas_parametros if col not in df.columns]
+        if faltantes:
+            archivos_faltantes.append((fname, faltantes))
+
+    # Imprimir reporte
+    if archivos_faltantes:
+        count = len(archivos_faltantes)
+        print(f" - {count} ⚠ ARCHIVOS SIN PARÁMETROS COMPLETOS:")
+    else:
+        print("\n✔ Todos los archivos contienen las columnas de parámetros.")
+
+    # Si el número de archivos faltantes es pequeño, los eliminamos del dataframes
+    if len(archivos_faltantes) > 0 and len(archivos_faltantes) <= 5:
+        for fname, _ in archivos_faltantes:
+            del dataframes[fname]
+            print(f"   • {fname} eliminado del conjunto de datos.")
+    else: 
+        print("Demasiados archivos faltantes")
+    # Return lista de archivos problemáticos
+    return dataframes
 
 
 

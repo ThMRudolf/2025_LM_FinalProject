@@ -1,3 +1,5 @@
 #Ignorar carpeta data
 data/clean
 
+#Ignorar ambiente virtual
+myenv/
