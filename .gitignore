@@ -1,2 +1,6 @@
 #Ignorar carpeta data
 data/
+__pycache__/
+# ignore filew
+*.xml
+*.xlsx

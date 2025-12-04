@@ -63,7 +63,7 @@ dataframes = revisar_nulos_interpolar(dataframes)
 
 ## read in the process parameters from a excel file
 ## @tmr
-tool_type = 'C1030' # insert tool type here C4240
+tool_type = 'C1030' # insert tool type here C4240 Plan
 param_experim_data_file = f'data/parameterize_experiment/Experiment_{tool_type}.xlsx'
 
 params_df = GetExperimData(param_experim_data_file, tool_type)
@@ -71,16 +71,16 @@ params_df.set_material_parameters(kc11 = 1800, mc = 0.25)
 params_df.set_tool_parameters(rtool = 20, kappa = 45)
 df = params_df.get_experiment_param()
 results = []
-tool_type = 'C1030'  # insert tool type here C4240
+#tool_type = 'C1030'  # insert tool type here C4240
 #param_experim_all_files = f'../../../data/parameterize_experiment/Experiment_{tool_type}.xlsx'
-file_folder = f'data/raw/{tool_type}/all/' #f'../../../data/raw/{tool_type}/all/'
+record_type = 'all' #'Plan' # 'all'
+file_folder = f'data/raw/{tool_type}/{record_type}/' #f'../../../data/raw/{tool_type}/all/'
 #C:\Users\thmru\github\2025_LM_FinalProject\data\raw\C1030\all
 output_dir = Path("./data/clean")
 for idx, row in df.iterrows():
-
     # 1. Read real measurement file
     fname = row["SinuTraceFile (*.csv)"]
-    file_path = file_folder + row["SinuTraceFile (*.csv)"]
+    file_path = file_folder  + row["SinuTraceFile (*.csv)"]
     print(f"Processing measurement {idx}: {file_path}")
     real = pd.read_csv(file_path)
     t = real["time"].values
