@@ -70,38 +70,41 @@ example_fname = random.choice(list(dataframes.keys()))
 #---------------------------------------------------------
 # Guardar los DataFrames preprocesados
 #---------------------------------------------------------
-output_dir = Path("./data/clean")
-print(f"\nGuardando los DataFrames preprocesados en {output_dir}/...")
-for fname, df in dataframes.items():
-    # Creamos el directorio padre si no existe
-    output_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        # Guardar como CSV sin diferenciación de carpetas
-        output_path = output_dir / fname.name
-        df.to_csv(output_path, index=False)
-    except Exception as e:
-        print(f" ⚠ Error guardando {output_path}: {e}")
-print("Preprocesamiento completado.")
+# output_dir = Path("./data/clean")
+# print(f"\nGuardando los DataFrames preprocesados en {output_dir}/...")
+# for fname, df in dataframes.items():
+#     # Creamos el directorio padre si no existe
+#     output_dir.mkdir(parents=True, exist_ok=True)
+#     try:
+#         # Guardar como CSV sin diferenciación de carpetas
+#         output_path = output_dir / fname.name
+#         df.to_csv(output_path, index=False)
+#     except Exception as e:
+#         print(f" ⚠ Error guardando {output_path}: {e}")
+# print("Preprocesamiento completado.")
 
-#Leemos los dataframes limpios
-dataframes_clean = leer_todos_csv(output_dir)
+# #Leemos los dataframes limpios
+# dataframes_clean = leer_todos_csv(output_dir)
 
 # ---------------------------------------------------------
 # Análisis de los datos preprocesados
 # ---------------------------------------------------------
-# results_time = analizar_duracion_cortes(dataframes.values())
-# print("Duración de los cortes:")
-# #Imprimimos en forma de tabla
-# for key, value in results_time.items():
-#     print(f" - {key}: {value:.2f} s")
+results_time, time_steps = analizar_duracion_cortes(dataframes.values())
+print("Duración de los cortes:")
+#Imprimimos en forma de tabla
+for key, value in results_time.items():
+    print(f" - {key}: {value:.2f} s")
+print("\nTime step metrics:")
+for key, value in time_steps.items():
+    print(f" - {key}: {value:.4f} s")
 
-# torque_global = analizar_torque(dataframes.values())
-# print("\nEstadísticas globales de torque:")
-# for key, value in torque_global.items():
-#     print(f" - {key}: {value:.2f}")
+torque_global = analizar_torque(dataframes.values())
+print("\nEstadísticas globales de torque:")
+for key, value in torque_global.items():
+    print(f" - {key}: {value:.2f}")
 
-#Gráficas
-#graficas(dataframes.values())
+# #Gráficas
+# graficas(dataframes.values())
 
 
 # ---------------------------------------------------------

@@ -11,13 +11,27 @@ def analizar_duracion_cortes(all_dfs):
         durations.append(duration)
 
     durations = pd.Series(durations)
-
-    return {
+    metricas_duracion = {
         "min_duration_s": durations.min(),
         "max_duration_s": durations.max(),
         "mean_duration_s": durations.mean(),
         "std_duration_s": durations.std()
     }
+
+    # Calculamos el time-step promedio, mínimo, máximo y desviación estándar de cada serie de tiempo
+    time_steps = []
+    for df in all_dfs:
+        time_diffs = df["time"].diff().dropna()
+        time_steps.append(time_diffs)
+    all_time_steps = pd.concat(time_steps)
+    metrica_time_step = {
+        "min_time_step_s": all_time_steps.min(),
+        "max_time_step_s": all_time_steps.max(),
+        "mean_time_step_s": all_time_steps.mean(),
+        "std_time_step_s": all_time_steps.std()
+    }
+    
+    return metricas_duracion, metrica_time_step
 
 def analizar_torque(all_dfs):
     torque_stats = []
