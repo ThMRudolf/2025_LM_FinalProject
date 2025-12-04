@@ -15,6 +15,9 @@ from preproc_data.limpiar_base import (
 from preproc_data.tratar_nulos import (
         imprimir_estadisticas_nulos,
         revisar_nulos_interpolar)
+### @tmr, 03.12.2025
+from preproc_data.src.py.kienzle_model import KienzleMillingModel
+from preproc_data.src.py.get_experim_data import GetExperimData
 # ---------------------------------------------------------
 # 1. Localizar todos los archivos CSV dentro de carpeta data
 # ---------------------------------------------------------
@@ -54,21 +57,88 @@ imprimir_estadisticas_nulos(dataframes)
 dataframes = revisar_nulos_interpolar(dataframes)
 
 #---------------------------------------------------------
+# 6. add data of Kienzle model
+#---------------------------------------------------------
+# Parámetros del modelo Kienzle (ejemplo)
+
+## read in the process parameters from a excel file
+## @tmr
+tool_type = 'C1030' # insert tool type here C4240
+param_experim_data_file = f'data/parameterize_experiment/Experiment_{tool_type}.xlsx'
+
+params_df = GetExperimData(param_experim_data_file, tool_type)
+params_df.set_material_parameters(kc11 = 1800, mc = 0.25)
+params_df.set_tool_parameters(rtool = 20, kappa = 45)
+df = params_df.get_experiment_param()
+results = []
+tool_type = 'C1030'  # insert tool type here C4240
+#param_experim_all_files = f'../../../data/parameterize_experiment/Experiment_{tool_type}.xlsx'
+file_folder = f'data/raw/{tool_type}/all/' #f'../../../data/raw/{tool_type}/all/'
+#C:\Users\thmru\github\2025_LM_FinalProject\data\raw\C1030\all
+output_dir = Path("./data/clean")
+for idx, row in df.iterrows():
+
+    # 1. Read real measurement file
+    fname = row["SinuTraceFile (*.csv)"]
+    file_path = file_folder + row["SinuTraceFile (*.csv)"]
+    print(f"Processing measurement {idx}: {file_path}")
+    real = pd.read_csv(file_path)
+    t = real["time"].values
+    iq_real = real["iqAx4"].values
+
+    # 2. Extract parameters
+    ap = row["Ap (mm)"]
+    fz = row["fz (mm/tooth)"]                     # already in dataframe
+    z  = int(row["z"])
+    kappa = row["kappa (rad)"]
+    omega = row["omega (rad/s)"]
+    kc11 = row["kc11"]
+    mc = row["mc"]
+    rtool = row["rtool (m)"]
+    phi_ent = row["phi_ent_rad"]
+    phi_exit = row["phi_exit_rad"]
+
+    # 3. Calculate model torque on same time stamps
+    kienzle_model = KienzleMillingModel(ap, fz, z, kappa, omega, kc11, mc, rtool, phi_ent, phi_exit)
+    phi, Fc, Tc, sin_sums = kienzle_model.evaluate(t)
+
+    # 4. Create synchronized output dataframe
+    out = pd.DataFrame({
+        "time": t,
+        "Tc_model": Tc,
+        "Iq_real": iq_real,
+        "phi": phi,
+        "sin_sums": sin_sums,
+        "measurement_id": row["SinuTraceFile (*.csv)"]
+    })
+
+    # 5. Save result file per measurement
+    # fname = f"../../../data/preprocessed/Mill/measurement_{idx:03d}_training_data.csv"
+    output_path = output_dir / fname
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    out.to_csv(output_path, index=False)
+
+    results.append(fname)
+    
+print(f"\nGuardando los DataFrames preprocesados en {output_dir}/...")
+results[:5]   # show first few generated files
+
+#---------------------------------------------------------
 # 6. Guardar los DataFrames preprocesados
 #---------------------------------------------------------
-output_dir = Path("./data/clean")
-print(f"\nGuardando los DataFrames preprocesados en {output_dir}/...")
-for fname, df in dataframes.items():
-    output_path = output_dir / fname
-    # Creamos el directorio padre si no existe
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        # Guardar como CSV sin índice
-        df.to_csv(output_path, index=False)
-    except Exception as e:
-        print(f" ⚠ Error guardando {output_path}: {e}")
-print("Preprocesamiento completado.")
+#output_dir = Path("./data/clean")
+#print(f"\nGuardando los DataFrames preprocesados en {output_dir}/...")
+#for fname, df in dataframes.items():
+#    output_path = output_dir / fname
+#    # Creamos el directorio padre si no existe
+#    output_path.parent.mkdir(parents=True, exist_ok=True)
+#    try:
+#        # Guardar como CSV sin índice
+#        df.to_csv(output_path, index=False)
+#    except Exception as e:
+#        print(f" ⚠ Error guardando {output_path}: {e}")
+#print("Preprocesamiento completado.")
 
 #Leemos los dataframes limpios
-dataframes_clean = leer_todos_csv(output_dir)
+#dataframes_clean = leer_todos_csv(output_dir)
 

@@ -6,7 +6,8 @@ class KienzleMillingModel:
     Can be reused for single-measurement simulations or batch evaluation.
     """
 
-    def __init__(self, ap, fz, z, kappa, omega, kc11, mc,
+    def __init__(self, ap, fz, z, 
+                 kappa, omega, kc11, mc,
                  rtool, phi_ent, phi_exit):
         """
         Parameters
