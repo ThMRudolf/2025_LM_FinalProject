@@ -17,6 +17,7 @@ from preproc_data.tratar_nulos import (
         revisar_nulos_interpolar)
 ### @tmr, 03.12.2025
 from preproc_data.src.py.kienzle_model import KienzleMillingModel
+from preproc_data.src.py.preprocess_data import PreprocessData
 from preproc_data.src.py.get_experim_data import GetExperimData
 # ---------------------------------------------------------
 # 1. Localizar todos los archivos CSV dentro de carpeta data
