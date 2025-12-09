@@ -38,7 +38,7 @@ class PreprocessData:
     def set_model_signal(self, model_signal):
         self.model_signal = np.asarray(model_signal)
 
-    def estimate_delay(self, threshold_factor=4, window_length=0.3):
+    def estimate_delay(self, threshold_factor=4, window_length=2.5):
         """
         Estimate the time delay between real and model force signals.
     
@@ -69,13 +69,16 @@ class PreprocessData:
         # -------------------------------------------------------------
         # 1. Detect cutting onset
         # -------------------------------------------------------------
-        noise_level = np.std(real_force[:int(0.1 * len(real_force))])  # first 10% = noise
-        threshold = threshold_factor * noise_level
-
+        signal2analyse = real_force[:int(0.08 * len(real_force))]
+        noise_level = np.std(signal2analyse)  # first 10% = noise
+        noise_mean = np.mean(signal2analyse)
+        threshold = threshold_factor * noise_level + noise_mean
+        print(f'noise level: {noise_level}, threshold: {threshold}')
         above = np.where(np.abs(real_force) > threshold)[0]
         if len(above) == 0:
             raise ValueError("No cutting onset detected.")
-        start_idx = max(above[0] - int(0.02 * fs), 0)   # small buffer before onset
+        start_idx = max(above[0] + int(0.02 * fs), 0)   # small buffer before onset
+        end_idx = max(above[-1] - int(0.02 * fs), 0)   # small buffer  onset
 
         # -------------------------------------------------------------
         # 2. Crop both signals to same window
@@ -85,8 +88,11 @@ class PreprocessData:
         if start_idx + N_window > len(real_force):
             raise ValueError("Recording too short after onset.")
 
-        real_crop = real_force[start_idx:start_idx + N_window]
-        model_crop = model_force[start_idx:start_idx + N_window]
+        #real_crop = real_force[start_idx:start_idx + N_window]
+        #model_crop = model_force[start_idx:start_idx + N_window]
+
+        real_crop = real_force[start_idx:end_idx]
+        model_crop = model_force[start_idx:end_idx]
 
         # -------------------------------------------------------------
         # 3. Normalize (zero-mean)
@@ -103,7 +109,7 @@ class PreprocessData:
         lag_samples = lags[np.argmax(corr)]
         tau = lag_samples / fs
 
-        return tau, lag_samples, start_idx
+        return tau, lag_samples, start_idx, end_idx
 
 
     def find_constant_fs_region(self, tolerance=0.0001, bootstrap=30):
